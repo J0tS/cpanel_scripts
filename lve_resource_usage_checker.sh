@@ -36,7 +36,7 @@ lveinfo --user "${cpun}" --period 1h --time-unit 10m --show-columns from to epf 
 
 
 # Collecting data
-user_cur_apache_reqs="$(apachectl fullstatus | grep -e "$(grep " ${cpun}==" /etc/userdatadomains | cut -d: -f1 | cut -c1-32 | xargs | sed 's/ /:|/g')")"
+user_cur_apache_reqs="$(apachectl fullstatus | egrep -e "$(grep " ${cpun}==" /etc/userdatadomains | cut -d: -f1 | cut -c1-32 | xargs | sed 's/ /:|/g')")"
 user_cur_apache_req_num="$(wc -l <<<"${user_cur_apache_reqs}")"
 user_hist_apache_reqs="$(cat /usr/local/apache/domlogs/"${cpun}"/*)"
 user_hist_apache_req_num="$(wc -l <<<"${user_hist_apache_reqs}")"
