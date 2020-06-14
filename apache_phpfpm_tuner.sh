@@ -1,7 +1,6 @@
 #!/bin/bash
 # Apache/PHP-FPM tuner for cPanel EasyApache 4
 # tested under cPanel 11.84 and Apache 2.4
-# Copyright (C) 2020 Peter 'JotS' Dzyuba
 
 #set -x
 #######################
