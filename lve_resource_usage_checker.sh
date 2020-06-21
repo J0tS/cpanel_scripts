@@ -96,6 +96,11 @@ if [[ "$(expr "${mem_total}" - "${mem_cached}")" -lt "$(expr "${mem_total}" - "$
     patterns="1"
 fi
 
+# MyISAM engine tables
+if grep -q 'Waiting for table level lock' <<< "${user_mysql_queries}"; then
+    issue_myisam_locks="1"
+    patterns="1"
+fi
 
 # AJAX requests
 if [[ "${user_cur_apache_req_num}" -gt 0 ]]; then
@@ -186,13 +191,13 @@ if /usr/sbin/lveinfo --user "${cpun}" --period 1d --time-unit 1d --show-columns 
         else
             printf "EPf: %s  | CPUf: %s | PMemF: %s | VMemF: %s | IOPSf: %s | NprocF: %s\n" $(cat <<< "${raw_hourly_lveinfo}" | tr -d '|' | awk '{print $1, $2, $3, $4, $5, $6}')
             echo "Cron job runs: $hourly_cron_runs"
-            echo "Hourly requests (only 502, 503, 508 errors)"
+            echo "Hourly requests"
             echo "===== User Agents ====="
-            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | grep -E ' 502 | 503 | 508 ' | cut -d\" -f6 | sort | uniq -c | sort -nr | head -3
+            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | cut -d\" -f6 | sort | uniq -c | sort -nr | head -3
             echo "===== Request destinations ====="
-            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | grep -E ' 502 | 503 | 508 ' | cut -d\" -f2 | sort | uniq -c | sort -nr | head -3
+            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | cut -d\" -f2 | sort | uniq -c | sort -nr | head -3
             echo "===== Request source IPs ====="
-            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | grep -E ' 502 | 503 | 508 ' | cut -d' ' -f1 | sort | uniq -c | sort -nr | head -3
+            egrep "${apache_domlog_ptrn}" <<< "${user_hist_apache_reqs}" | cut -d' ' -f1 | sort | uniq -c | sort -nr | head -3
         fi
         echo $delim
     done
@@ -218,7 +223,7 @@ if [[ "${issue_ajax}" == "1" ]]; then
 fi
 
 if [[ "${issue_selfdos}" == "1" ]]; then
-    echo -e "PATTERN DETECTED: Self-DoS - site is making requests to itself (IP $selfdos_ip - see 'Request source IPs' for details).\nSOLUTION: Wweak the site to make less requests to itself or move to VPS/dedicated server.\n"
+    echo -e "PATTERN DETECTED: Self-DoS - site is making requests to itself (IP $selfdos_ip - see 'Request source IPs' for details).\nSOLUTION: Tweak the site to make less requests to itself or move to VPS/dedicated server.\n"
 fi
 
 if [[ "${issue_one_ip_dos}" == "1" ]]; then
