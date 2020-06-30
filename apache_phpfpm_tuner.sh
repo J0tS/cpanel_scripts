@@ -261,6 +261,7 @@ apply_values() {
             case $apply in
                 A|a|apache)
                     set_apache
+                    post_check
                     ;;
                 P|p|php-fpm)
                     set_phpfpm
@@ -268,6 +269,7 @@ apply_values() {
                 b|both)
                     set_apache
                     set_phpfpm
+                    post_check
                     ;;
                 e|exit)
                     exit 0
