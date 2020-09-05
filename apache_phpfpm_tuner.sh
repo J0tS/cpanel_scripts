@@ -1,6 +1,7 @@
 #!/bin/bash
 # Apache/PHP-FPM tuner for cPanel EasyApache 4
 # tested under cPanel 11.84 and Apache 2.4
+# Copyright (C) 2020 Peter 'JotS' Dzyuba
 
 #set -x
 #######################
@@ -10,9 +11,9 @@
 ## php-fpm
 tune_phpfpm="1"
 def_phpfpm_avg_mem="10000"  # kilobytes
-def_phpfpm_max_child="50"
-def_phpfpm_max_req="200"
-convert_all_to_fpm="0"
+def_phpfpm_max_child="100"
+def_phpfpm_max_req="400"
+convert_all_to_fpm="1"
 
 ## apache
 tune_apache="1"
@@ -20,6 +21,7 @@ def_apache_avg_mem="10000"  # kilobytes
 
 ## general
 memory_preserve="0"         # megabytes, 20% of all available memory + 500M will be preserved if set to '0'
+auto_apply="1"              # Added to run via JTK in headless mode
 #######################
 # END settings
 #######################
@@ -31,7 +33,7 @@ memory_preserve="0"         # megabytes, 20% of all available memory + 500M will
 #######################
 print_help() {
     cat <<EOF
-ABOUT:
+SYNOPSIS:
 This script can be used to tune Apache and PHP-FPM under cPanel EasyApache 3/4.
 If PHP-FPM is not enabled, script will enable it.
 
@@ -122,14 +124,6 @@ parse_input() {
 }
 
 
-get_php_values() {
-    if [ -f /var/cpanel/ApachePHPFPM/system_default_ ]; then
-        apache_dir="/etc/httpd/conf"
-    elif [ -f /etc/apache2/conf/httpd.conf ]; then
-        apache_dir="/etc/apache2/conf"
-    fi
-
-}
 
 
 get_values() {
@@ -196,6 +190,8 @@ get_values() {
             echo "Value for max_children (user override) - $phpfpm_max_child"
         fi
     fi
+
+
 }
 
 
@@ -210,16 +206,17 @@ set_apache() {
     fi
     if [[ -f "$(which nginx 2>/dev/null)" ]]; then
         echo "Nginx web-server detected, applying appropiate restart sequence"
-        { find ${apache_dir} -name '*lock*' -delete; service nginx stop && /scripts/rebuildhttpdconf && /scripts/restartsrv_httpd --stop && \
+        { find ${apache_dir} -name '*lock*' -delete; service nginx stop && /scripts/rebuildhttpdconf && /scripts/restartsrv_httpd --stop --hard&& \
         /scripts/restartsrv_httpd --start && nginx -t && service nginx start; } 1>/dev/null
     else
-        { find ${apache_dir} -name '*lock*' -delete; /scripts/rebuildhttpdconf && /scripts/restartsrv_httpd --stop && /scripts/restartsrv_httpd --start; } 1>/dev/null
+        { find ${apache_dir} -name '*lock*' -delete; /scripts/rebuildhttpdconf && /scripts/restartsrv_httpd --stop --hard && /scripts/restartsrv_httpd --start; } 1>/dev/null
     fi
 }
 
 
 set_phpfpm() {
     echo "Settings max_requests and max_children values for PHP-FPM"
+    mkdir -p /var/cpanel/ApachePHPFPM
     cat << EOF > /var/cpanel/ApachePHPFPM/system_pool_defaults.yaml
 ---
 php_admin_flag_allow_url_fopen: 'on'
@@ -234,12 +231,18 @@ pm_max_requests: ${phpfpm_max_req}
 pm_process_idle_timeout: 10
 EOF
     # shoutouts to Mikhail K
-    if [[ -f "/etc/csf/csf.pignore" ]] && [[ "${phpfpm_max_req}" -ge "200" ]] && ! grep -q "/opt/cpanel/ea-php\*/root/usr/bin/php" /etc/csf/csf.pignore; then
-        echo 'High value of max_requests detected. Addiding /opt/cpanel/ea-php*/root/usr/bin/php to /etc/csf/csf.pignore'
-        echo '/opt/cpanel/ea-php*/root/usr/bin/php' >> /etc/csf/csf.pignore
-        csf -r 1>/dev/null
-    fi
-    { find ${apache_dir} -name '*lock*' -delete; /scripts/restartsrv_httpd --stop; /scripts/php_fpm_config --rebuild; /scripts/rebuildhttpdconf; /scripts/restartsrv_apache_php_fpm; /scripts/restartsrv_httpd --start; } 1>/dev/null
+    echo 'Addiding /opt/cpanel/ea-php*/root/usr/bin/php to /etc/csf/csf.pignore'
+    echo '/opt/cpanel/ea-php*/root/usr/bin/php' >> /etc/csf/csf.pignore
+    csf -r 1>/dev/null
+      if [[ -f "$(which nginx 2>/dev/null)" ]]; then
+          echo "Nginx web-server detected, applying appropiate restart sequence"
+          { find ${apache_dir} -name '*lock*' -delete; service nginx stop && /scripts/restartsrv_httpd --stop --hard \
+            /scripts/php_fpm_config -rebuild && /scripts/restartsrv_apache_php_fpm && \
+            /scripts/rebuildhttpdconf &  /scripts/restartsrv_httpd --start && nginx -t && service nginx start; } 1>/dev/null
+      else
+        { find ${apache_dir} -name '*lock*' -delete; /scripts/restartsrv_httpd --stop --hard; /scripts/php_fpm_config --rebuild; /scripts/rebuildhttpdconf; /scripts/restartsrv_apache_php_fpm; /scripts/restartsrv_httpd --start;
+        } 1>/dev/null
+      fi
 }
 
 
@@ -261,7 +264,6 @@ apply_values() {
             case $apply in
                 A|a|apache)
                     set_apache
-                    post_check
                     ;;
                 P|p|php-fpm)
                     set_phpfpm
@@ -269,7 +271,6 @@ apply_values() {
                 b|both)
                     set_apache
                     set_phpfpm
-                    post_check
                     ;;
                 e|exit)
                     exit 0
@@ -302,7 +303,6 @@ post_check() {
 
 
 
-
 #######################
 # START main
 #######################
@@ -311,6 +311,11 @@ get_values
 apply_values
 if [[ "${convert_all_to_fpm}" == "1" ]]; then
     echo "Initiated conversion of all accounts to PHP-FPM"
+    yum-complete-transaction --cleanup-only
+    yum install -y ea-apache24-mod_proxy_fcgi
+    for i in $(whmapi1 php_get_installed_versions | grep ' - ' | awk '{print $NF}'); do
+      yum install -y "${i}-php-fpm"
+    done
     whmapi1 convert_all_domains_to_fpm
 fi
 if [[ "${change_mpm}" == "1" ]]; then
